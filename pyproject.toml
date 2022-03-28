@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "pyner"
+version = "0.1.0"
+description = "NER(Named Entity Regonization)實體辨識的專案練習"
+authors = ["liminchian <liminchian@gmail.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+Sphinx = { version = "4.2.0", optional = true }
+sphinx-rtd-theme = { version = "1.0.0", optional = true }
+sphinxcontrib-napoleon = { version = "0.7", optional = true }
+
+[tool.poetry.dev-dependencies]
+pytest = "^5.2"
+
+[tool.poetry.extras]
+docs = ["Sphinx", "sphinx-rtd-theme", "sphinxcontrib-napoleon"]
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
