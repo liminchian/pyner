@@ -56,3 +56,4 @@ class _LazyModule(ModuleType):
 
 if __name__ == "__main__":
     ROOT = os.path.abspath(os.path.dirname(__file__))
+    DEBUG_VAR_NAME = "DEBUG"

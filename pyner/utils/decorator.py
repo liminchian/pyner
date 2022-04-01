@@ -1,21 +1,46 @@
 import functools
+import logging
 import time
 import tracemalloc
+from types import FunctionType
 from typing import Iterable
 
+from pyner._config import DEBUG_VAR_NAME
 
-def print_iter(method):
-    @functools.wraps(method)
-    def wrapper(self, *args, **kwargs):
-        res = method(self, *args, **kwargs)
+
+def logger(obj):
+    enabled = globals()[DEBUG_VAR_NAME]
+
+    def _log(name, res):
         if isinstance(res, Iterable):
-            print(f"\nFunction:  {self.__class__.__name__}.{method.__name__}")
-            for idx, obj in enumerate(res):
-                print(f"   [{idx}]     {obj}")
-            print("-" * 40)
+            for idx, o in enumerate(res):
+                msg = f"[{name}/{idx}]: {o}"
+                logging.debug(msg)
+                if enabled:
+                    print(msg)
+        else:
+            msg = f"[{name}]: {res}"
+            logging.debug(msg)
+            if enabled:
+                print(msg)
+
+    @functools.wraps(obj)
+    def wrapper_func(*args, **kwargs):
+        name = obj.__name__
+        res = obj(*args, **kwargs)
+        _log(name, res)
         return res
 
-    return wrapper
+    @functools.wraps(obj)
+    def wrapper_method(self, *args, **kwargs):
+        name = f"{self.__class__.__name__}.{obj.__name__}"
+        res = obj(self, *args, **kwargs)
+        _log(name, res)
+        return res
+
+    if isinstance(obj, FunctionType):
+        return wrapper_func
+    return wrapper_method
 
 
 def benchmark(method):

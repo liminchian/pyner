@@ -1,28 +1,32 @@
-import json
-from typing import ContextManager, Generator, List
+import urllib
+from typing import Iterator, List
+
+import numpy as np
+
+from pyner.utils.decorator import logger
 
 
-class Pipe:
-    @classmethod
-    def from_json(cls, fp: str):
-        raise NotImplemented
-
-    def run(self) -> Generator:
-        raise NotImplemented
+class Pipe(Iterator):
+    def __init__(self, input_data: np.Arrayterator):
+        self._input_data = input_data
 
     def __str__(self) -> str:
         return f"{self.__class__} at {hex(id(self))}"
 
+    @logger
+    def __iter__(self):
+        pass
 
-class Pipeline(ContextManager):
+    def run(self):
+        raise NotImplemented
+
+
+class Pipeline(object):
     def __init__(self):
         self._content: List[Pipe] = []
 
     def add(self, pipe: Pipe):
         self._content.append(pipe)
-
-    def run(self):
-        pass
 
     def __str__(self) -> str:
         return f"{self.__class__} at {hex(id(self))}"
@@ -31,4 +35,16 @@ class Pipeline(ContextManager):
         return self._content[index]
 
     def __len__(self) -> int:
-        return len(self._content)
+        return len()
+
+
+class Req(Pipe):
+    pass
+
+
+class Selector(Pipe):
+    pass
+
+
+class DataCollector(Pipe):
+    pass
