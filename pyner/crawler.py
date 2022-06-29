@@ -1,26 +1,25 @@
+from datetime import datetime
+from enum import Enum
+
 import libxml2
 import requests
 from bs4 import BeautifulStoneSoup
 
 
-def parse(func):
-    def inner(obj, *args, **kwargs):
-        return func(obj, *args, **kwargs)
+class ParseOption(Enum):
+    ClassAndTag = ("ClassAndTag", BeautifulStoneSoup, BeautifulStoneSoup.find_all)
+    Css = ("Css", BeautifulStoneSoup, BeautifulStoneSoup.select)
+    Xpath = ("Xpath", libxml2.parseDoc, libxml2.xpathContext.xpathEval)
 
-    return inner
-
-
-# Web selector and find element by html string.
-css_selector = parse(BeautifulStoneSoup.select)
-xpath_selector = parse(libxml2.xpathContext.xpathEval)
-tag = parse(BeautifulStoneSoup.find_all)
-
-# Build html document.
-xpath_parser = parse(libxml2.parseDoc)
-soup = parse(BeautifulStoneSoup)
+    def __new__(cls, name, parser, method) -> "ParseOption":
+        parse = object.__new__(cls)
+        setattr(parse, "name", name)
+        setattr(parse, "parser", parser)
+        setattr(parse, "method", method)
+        return parse
 
 
-class Crawler(object):
+class Crawler:
     def __init__(
         self,
         url: str,
@@ -44,3 +43,10 @@ class Crawler(object):
                 data=self._body,
                 proxies=self._proxies,
             ).text
+
+
+class Ptt:
+    root_page = "https://www.ptt.cc/bbs/index.html"
+
+    def __init__(self):
+        self._html = Crawler(url=self.root_page, method="GET")
