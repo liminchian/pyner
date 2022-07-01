@@ -1,22 +1,22 @@
 from datetime import datetime
-from enum import Enum
 
 import libxml2
 import requests
-from bs4 import BeautifulStoneSoup
+from bs4 import BeautifulSoup
 
 
-class ParseOption(Enum):
-    ClassAndTag = ("ClassAndTag", BeautifulStoneSoup, BeautifulStoneSoup.find_all)
-    Css = ("Css", BeautifulStoneSoup, BeautifulStoneSoup.select)
-    Xpath = ("Xpath", libxml2.parseDoc, libxml2.xpathContext.xpathEval)
+class Parser:
+    def __init__(self, html: str):
+        self._html = html
 
-    def __new__(cls, name, parser, method) -> "ParseOption":
-        parse = object.__new__(cls)
-        setattr(parse, "name", name)
-        setattr(parse, "parser", parser)
-        setattr(parse, "method", method)
-        return parse
+    def css_selector(self, selector: str) -> list:
+        return BeautifulSoup(self._html, "html.parser").select(selector)
+
+    def tag_and_class_finder(self, tag_name: str, attr=None):
+        return BeautifulSoup(self._html, "html.parser").find_all(tag_name, attr)
+
+    def xpath(self, expr: str):
+        return libxml2.parseDoc(self._html).xpathEval(expr)
 
 
 class Crawler:
@@ -46,7 +46,45 @@ class Crawler:
 
 
 class Ptt:
-    root_page = "https://www.ptt.cc/bbs/index.html"
+    root_page = "https://www.ptt.cc/bbs"
+    default_page = "index.html"
 
     def __init__(self):
-        self._html = Crawler(url=self.root_page, method="GET")
+        self._urls = []
+        self._seens = []
+        self._headers = {"over18": "1"}
+        self._board_list = list(
+            map(
+                lambda t: t.string,
+                Parser(
+                    Crawler(
+                        url=f"{self.root_page}/{self.default_page}",
+                        method="GET",
+                        headers=self._headers,
+                    ).response()
+                ).tag_and_class_finder("div", ".board_name"),
+            )
+        )
+
+    def get_articles(self, board_name: str) -> "Ptt":
+        if board_name not in self._board_list:
+            raise KeyError(f'couldn\'t find "{board_name}" in list.')
+        else:
+            self._urls = list(
+                map(
+                    lambda tag: tag["href"],
+                    Parser(
+                        Crawler(
+                            url=f"{self.root_page}/{board_name}/{self.default_page}",
+                            method="GET",
+                            headers=self._headers,
+                        ).response(),
+                    ).css_selector("div.title > a"),
+                )
+            )
+
+        return self
+
+
+if __name__ == "__main__":
+    pass
