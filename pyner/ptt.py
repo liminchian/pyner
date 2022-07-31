@@ -1,8 +1,9 @@
 import re
 from datetime import datetime
-from typing import Iterable, List
+from typing import Any, Dict, Iterable, List, Set
 
 from pyner.crawler import Articles, Parser, response
+from pyner.utils import watch
 
 
 class Ptt:
@@ -15,65 +16,110 @@ class Ptt:
 
     def __init__(self, block: str) -> None:
         self._block = f"bbs/{block}"
-        self._page_rex = lambda link: re.compile(
-            r"^/\w+/\w+/index(?P<page>\d+)\.html$"
-        ).match(link)
+        self._get_link = (
+            lambda tag: self.default_domain + tag["href"]
+            if self._block in tag["href"]
+            else self.default_domain + self._block + tag["href"]
+        )
+        self._get_response = lambda url: response(url, headers=self.headers)
+        self._link_parser = (
+            lambda response: Parser(response.text)
+            .css_selector("div.title > a")
+            .map(self._get_link)
+            .data
+        )
+        self._page_parser = (
+            lambda response: Parser(response.text)
+            .css_selector("div.btn-group:nth-child(2) > a:nth-child(2)")
+            .map(self._get_link)
+            .data
+        )
+        self._get_page_number = (
+            lambda link: int(re.compile(r"(\d+)").findall(link)[0]) + 1
+            if re.compile(r"(\d+)").findall(link)[0]
+            else 0
+        )
+
         self._url = f"{self.default_domain}/{self._block}/{self.main_page}"
-        self._response = response(self._url, headers=self.headers)
-        self._seen_urls: List[str] = []
-        self._articles: List[Articles] = list(self._get_articles())
+        self._response = self._get_response(self._url)
+        self._max_page = self._get_page_number(self._page_parser(self._response)[0])
+        self._task: List[str] = self._link_parser(self._response)
+        self._seen_urls: Set[str] = set()
+
+    def _get_comment_datetime(self, tag):
+        # datetime format -> mm/dd hh:mm
+        _, *dt = tag.string.split()
+        return " ".join(dt)
+
+    def _get_article_comment(self, html: str) -> Dict[str, Any]:
+        return Articles(
+            html,
+            tag=lambda html: Parser(html)
+            .css_selector("span.hl.push-tag")
+            .map(lambda tag: tag.string)
+            .data,
+            userid=lambda html: Parser(html)
+            .css_selector("span.f3.hl.push-userid")
+            .map(lambda tag: tag.string)
+            .data,
+            content=lambda html: Parser(html)
+            .css_selector("span.f3.push-content")
+            .map(lambda tag: tag.string)
+            .data,
+            ip=lambda html: Parser(html)
+            .css_selector("span.push-ipdatetime")
+            .map(lambda tag: tag.string.split()[0] if tag else "")
+            .data,
+            datetime=lambda html: Parser(html)
+            .css_selector("span.push-ipdatetime")
+            .map(self._get_comment_datetime)
+            .data,
+        ).to_dict()
 
     def _switch_page(self, page: int):
         name, suffix = self.main_page.rsplit(".")
-        self._seen_urls.append(self._response.text)
-        self._url = f"{self.default_domain}/{self._block}/{name}{page}.{suffix}"
-
-    def _get_page(self) -> int:
-        m = self._page_rex(
-            list(
-                Parser(self._response.text)
-                .css_selector("div.btn-group:nth-child(2) > a:nth-child(2)")
-                .map(lambda tag: tag["href"])
-            )[0]
-        )
-        if m:
-            return int(m.group("page")) + 1
-        else:
-            raise RuntimeError("can not find page.")
-
-    def _get_articles(self) -> Iterable[Articles]:
-        links = (
-            Parser(self._response.text)
-            .css_selector("div.title > a")
-            .map(lambda tag: self.default_domain + tag["href"])
-        )
-        kwds = {
-            "title": lambda html: Parser(html)
-            .css_selector("div.article-metaline:nth-child(3) > span:nth-child(2)")
-            .map(lambda tag: tag.string),
-            "create_time": lambda html: Parser(html)
-            .css_selector("div.article-metaline:nth-child(4) > span:nth-child(2)")
-            .map(lambda tag: datetime.strptime(tag.string, "%a %b %d %H:%M:%S %Y")),
-        }
-        for link in links:
-            art = Articles(response(link, headers=self.headers).text, kwds)
-            yield art
+        self._seen_urls.add(self._url)
+        if page > 0 and page <= self._max_page:
+            self._url = f"{self.default_domain}/{self._block}/{name}{page}.{suffix}"
+            self._response = self._get_response(self._url)
+            self._task.extend(self._link_parser(self._response))
 
     @property
-    def page_number(self) -> int:
-        return self._get_page()
-
-    @page_number.setter
-    def page_number(self, page: int):
-        self._switch_page(page)
+    def articles(self) -> Iterable[Articles]:
+        for link in self._task:
+            if link in self._seen_urls:
+                continue
+            else:
+                self._seen_urls.add(link)
+            yield Articles(
+                self._get_response(link).text,
+                title=lambda html: Parser(html)
+                .css_selector("div.article-metaline:nth-child(3) > span:nth-child(2)")
+                .map(lambda tag: tag.string)
+                .data,
+                create_time=lambda html: Parser(html)
+                .css_selector("div.article-metaline:nth-child(4) > span:nth-child(2)")
+                .map(lambda tag: datetime.strptime(tag.string, "%a %b %d %H:%M:%S %Y"))
+                .data,
+                comment=lambda html: Parser(html)
+                .css_selector("div.push")
+                .map(lambda tag: self._get_article_comment(str(tag)))
+                .data,
+            )
 
     @property
-    def articles(self) -> int:
-        return len(self._articles)
+    def page(self):
+        return self._get_page_number(self._page_parser(self._response)[0])
+
+    @page.setter
+    def page(self, number: int):
+        self._switch_page(number)
 
     def __str__(self) -> str:
-        return f"<[{self._response.status_code}] domain: {self._block}, have {self.articles} articles at No.{self.page_number} page>"
+        return f"<[{self._response.status_code}] domain: {self._block}, have {len(self._task)} articles at No.{self.page} page>"
 
 
 if __name__ == "__main__":
-    print(Ptt("Gossiping"))
+    gossiping = Ptt("Gossiping")
+    gossiping.page -= 1
+    print(gossiping)
